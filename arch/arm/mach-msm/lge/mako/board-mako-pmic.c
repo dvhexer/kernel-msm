@@ -258,8 +258,8 @@ static struct pm8xxx_led_config pm8921_led_configs[] = {
 		.max_current = PM8921_LC_LED_MAX_CURRENT,
 		.pwm_channel = 6,
 		.pwm_period_us = PM8XXX_LED_PWM_PERIOD,
-		.pwm_duty_cycles = &pm8921_led0_pwm_duty_cycles,
-		.pwm_adjust_brightness = 52,
+		.pwm_duty_cycles = &pm8921_led0_pwm_duty_cycles
+//		.pwm_adjust_brightness = 52,
 	},
 	[1] = {
 		.id = PM8XXX_ID_LED_1,
@@ -267,8 +267,8 @@ static struct pm8xxx_led_config pm8921_led_configs[] = {
 		.max_current = PM8921_LC_LED_MAX_CURRENT,
 		.pwm_channel = 5,
 		.pwm_period_us = PM8XXX_LED_PWM_PERIOD,
-		.pwm_duty_cycles = &pm8921_led1_pwm_duty_cycles,
-		.pwm_adjust_brightness = 43,
+		.pwm_duty_cycles = &pm8921_led1_pwm_duty_cycles
+//		.pwm_adjust_brightness = 43,
 	},
 	[2] = {
 		.id = PM8XXX_ID_LED_2,
@@ -276,25 +276,27 @@ static struct pm8xxx_led_config pm8921_led_configs[] = {
 		.max_current = PM8921_LC_LED_MAX_CURRENT,
 		.pwm_channel = 4,
 		.pwm_period_us = PM8XXX_LED_PWM_PERIOD,
-		.pwm_duty_cycles = &pm8921_led2_pwm_duty_cycles,
-		.pwm_adjust_brightness = 75,
+		.pwm_duty_cycles = &pm8921_led2_pwm_duty_cycles
+//		.pwm_adjust_brightness = 75,
 	},
 };
 
 static __init void mako_fixed_leds(void) {
+/*
 	if (lge_get_board_revno() <= HW_REV_E) {
 		int i = 0;
 		for (i = 0; i < ARRAY_SIZE(pm8921_led_configs); i++)
 			pm8921_led_configs[i].pwm_adjust_brightness =
 				PM8XXX_LED_PWM_ADJUST_BRIGHTNESS_E;
 	}
+*/
 }
 
 static struct pm8xxx_led_platform_data apq8064_pm8921_leds_pdata = {
 		.led_core = &pm8921_led_core_pdata,
 		.configs = pm8921_led_configs,
-		.num_configs = ARRAY_SIZE(pm8921_led_configs),
-		.use_pwm = 1,
+		.num_configs = ARRAY_SIZE(pm8921_led_configs)
+//		.use_pwm = 1,
 };
 
 static struct pm8xxx_adc_amux apq8064_pm8921_adc_channels_data[] = {
