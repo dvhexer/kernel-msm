@@ -907,6 +907,7 @@ void __init apq8064_init_pmic(void)
 
 #if !defined(CONFIG_MACH_APQ8064_J1A)
 	mako_fixed_leds();
+#endif
 #ifdef CONFIG_WIRELESS_CHARGER
 	mako_fixup_wlc_gpio();
 #endif
