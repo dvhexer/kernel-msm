@@ -225,7 +225,10 @@ static struct led_info pm8921_led_info[] = {
 	},
 	[1] = {
 		.name			= "button-backlight",
-	}
+	},
+	[2] = {
+		.name			= "led:green",
+	},
 };
 #else
 static struct led_info pm8921_led_info[] = {
@@ -296,6 +299,18 @@ static struct pm8xxx_led_config pm8921_led_configs[] = {
 		.mode = PM8XXX_LED_MODE_MANUAL,
 		.max_current = PM8921_KEY_LED_MAX_CURRENT,
 
+	},
+	[2] = {
+		.id = PM8XXX_ID_LED_2,
+#ifdef CONFIG_LGE_PM_PWM_LED
+		.mode = PM8XXX_LED_MODE_PWM1,
+		.pwm_channel = 4,
+		.pwm_period_us = PM8XXX_LED_PWM_PERIOD,
+		.pwm_duty_cycles = &pm8921_led0_pwm_duty_cycles,
+#else
+		.mode = PM8XXX_LED_MODE_MANUAL,
+#endif
+		.max_current = PM8921_LC_LED_MAX_CURRENT,
 	},
 };
 
