@@ -1063,10 +1063,14 @@ static inline unsigned long max_compute_capacity_of(int cpu)
 	return cpu_rq(cpu)->max_compute_capacity;
 }
 
+unsigned long __weak arch_get_cpu_capacity(int);
+
+unsigned long __weak arch_get_max_cpu_capacity(int);
+
 static inline void update_cpu_capacity(int cpu)
 {
-	int tmp_capacity = arch_get_cpu_capacity(cpu);
-	int tmp_max_capacity = arch_get_max_cpu_capacity(cpu);
+	unsigned long tmp_capacity = arch_get_cpu_capacity(cpu);
+	unsigned long tmp_max_capacity = arch_get_max_cpu_capacity(cpu);
 	trace_sched_upd_cap(cpu, tmp_capacity, tmp_max_capacity);
 	cpu_rq(cpu)->max_compute_capacity = tmp_max_capacity;
 	cpu_rq(cpu)->curr_compute_capacity = tmp_capacity;
