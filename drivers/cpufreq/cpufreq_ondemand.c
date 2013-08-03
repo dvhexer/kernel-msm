@@ -42,6 +42,8 @@
 #define MIN_FREQUENCY_UP_THRESHOLD		(11)
 #define MAX_FREQUENCY_UP_THRESHOLD		(100)
 #define MIN_FREQUENCY_DOWN_DIFFERENTIAL		(1)
+#define DBS_SYNC_FREQ				(702000)
+#define DBS_OPTIMAL_FREQ			(1296000)
 
 /*
  * The polling frequency of this governor depends on the capability of
@@ -58,7 +60,7 @@
 static unsigned int min_sampling_rate;
 
 #define LATENCY_MULTIPLIER			(1000)
-#define MIN_LATENCY_MULTIPLIER			(100)
+#define MIN_LATENCY_MULTIPLIER			(20)
 #define TRANSITION_LATENCY_LIMIT		(10 * 1000 * 1000)
 
 #define POWERSAVE_BIAS_MAXLEVEL			(1000)
@@ -112,7 +114,7 @@ static inline void dbs_timer_exit(struct cpu_dbs_info_s *dbs_info);
 static unsigned int dbs_enable;	/* number of CPUs using this policy */
 
 /*
- * dbs_mutex protects dbs_enable in governor start/stop.
+ * dbs_mutex protects dbs_enable and dbs_info during start/stop.
  */
 static DEFINE_MUTEX(dbs_mutex);
 
@@ -150,8 +152,9 @@ static struct dbs_tuners {
 	.up_threshold_any_cpu_load = DEF_FREQUENCY_UP_THRESHOLD,
 	.ignore_nice = 0,
 	.powersave_bias = 0,
-	.sync_freq = 0,
-	.optimal_freq = 0,
+	.sync_freq = DBS_SYNC_FREQ,
+	.optimal_freq = DBS_OPTIMAL_FREQ,
+	.sampling_rate = (MICRO_FREQUENCY_MIN_SAMPLE_RATE * 5)
 };
 
 static inline u64 get_cpu_idle_time_jiffy(unsigned int cpu, u64 *wall)
@@ -580,6 +583,10 @@ static ssize_t store_powersave_bias(struct kobject *a, struct attribute *b,
 				POWERSAVE_BIAS_MINLEVEL));
 
 	dbs_tuners_ins.powersave_bias = input;
+
+	mutex_lock(&dbs_mutex);
+	get_online_cpus();
+
 	if (!bypass) {
 		if (reenable_timer) {
 			/* reinstate dbs timer */
@@ -646,6 +653,9 @@ skip_this_cpu_bypass:
 			unlock_policy_rwsem_write(cpu);
 		}
 	}
+
+	put_online_cpus();
+	mutex_unlock(&dbs_mutex);
 
 	return count;
 }
@@ -1255,7 +1265,6 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 		dbs_timer_exit(this_dbs_info);
 
 		mutex_lock(&dbs_mutex);
-		mutex_destroy(&this_dbs_info->timer_mutex);
 		dbs_enable--;
 		/* If device is being removed, policy is no longer
 		 * valid. */
@@ -1343,7 +1352,14 @@ static int __init cpufreq_gov_dbs_init(void)
 
 static void __exit cpufreq_gov_dbs_exit(void)
 {
+	unsigned int i;
+
 	cpufreq_unregister_governor(&cpufreq_gov_ondemand);
+	for_each_possible_cpu(i) {
+		struct cpu_dbs_info_s *this_dbs_info =
+			&per_cpu(od_cpu_dbs_info, i);
+		mutex_destroy(&this_dbs_info->timer_mutex);
+	}
 	destroy_workqueue(input_wq);
 }
 

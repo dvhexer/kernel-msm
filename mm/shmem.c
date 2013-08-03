@@ -713,8 +713,17 @@ static int shmem_writepage(struct page *page, struct writeback_control *wbc)
 	info = SHMEM_I(inode);
 	if (info->flags & VM_LOCKED)
 		goto redirty;
+#ifdef CONFIG_ZRAM_FOR_ANDROID
+	/*
+	 * Modification for compcache
+	 * shmem_writepage can be reason of kernel panic when using swap.
+	 * This modification prevent using swap by shmem.
+	 */
+	goto redirty;
+#else
 	if (!total_swap_pages)
 		goto redirty;
+#endif
 
 	/*
 	 * shmem_backing_dev_info's capabilities prevent regular writeback or
@@ -1211,13 +1220,22 @@ shmem_write_end(struct file *file, struct address_space *mapping,
 	return copied;
 }
 
-static void do_shmem_file_read(struct file *filp, loff_t *ppos, read_descriptor_t *desc, read_actor_t actor)
+static ssize_t shmem_file_read_iter(struct kiocb *iocb,
+				struct iov_iter *iter, loff_t pos)
 {
+	read_descriptor_t desc;
+	loff_t *ppos = &iocb->ki_pos;
+	struct file *filp = iocb->ki_filp;
 	struct inode *inode = filp->f_path.dentry->d_inode;
 	struct address_space *mapping = inode->i_mapping;
 	pgoff_t index;
 	unsigned long offset;
 	enum sgp_type sgp = SGP_READ;
+
+	desc.written = 0;
+	desc.count = iov_iter_count(iter);
+	desc.arg.data = iter;
+	desc.error = 0;
 
 	/*
 	 * Might this read be for a stacking filesystem?  Then when reading
@@ -1245,10 +1263,10 @@ static void do_shmem_file_read(struct file *filp, loff_t *ppos, read_descriptor_
 				break;
 		}
 
-		desc->error = shmem_getpage(inode, index, &page, sgp, NULL);
-		if (desc->error) {
-			if (desc->error == -EINVAL)
-				desc->error = 0;
+		desc.error = shmem_getpage(inode, index, &page, sgp, NULL);
+		if (desc.error) {
+			if (desc.error == -EINVAL)
+				desc.error = 0;
 			break;
 		}
 		if (page)
@@ -1299,13 +1317,13 @@ static void do_shmem_file_read(struct file *filp, loff_t *ppos, read_descriptor_
 		 * "pos" here (the actor routine has to update the user buffer
 		 * pointers and the remaining count).
 		 */
-		ret = actor(desc, page, offset, nr);
+		ret = file_read_iter_actor(&desc, page, offset, nr);
 		offset += ret;
 		index += offset >> PAGE_CACHE_SHIFT;
 		offset &= ~PAGE_CACHE_MASK;
 
 		page_cache_release(page);
-		if (ret != nr || !desc->count)
+		if (ret != nr || !desc.count)
 			break;
 
 		cond_resched();
@@ -1313,40 +1331,8 @@ static void do_shmem_file_read(struct file *filp, loff_t *ppos, read_descriptor_
 
 	*ppos = ((loff_t) index << PAGE_CACHE_SHIFT) + offset;
 	file_accessed(filp);
-}
 
-static ssize_t shmem_file_aio_read(struct kiocb *iocb,
-		const struct iovec *iov, unsigned long nr_segs, loff_t pos)
-{
-	struct file *filp = iocb->ki_filp;
-	ssize_t retval;
-	unsigned long seg;
-	size_t count;
-	loff_t *ppos = &iocb->ki_pos;
-
-	retval = generic_segment_checks(iov, &nr_segs, &count, VERIFY_WRITE);
-	if (retval)
-		return retval;
-
-	for (seg = 0; seg < nr_segs; seg++) {
-		read_descriptor_t desc;
-
-		desc.written = 0;
-		desc.arg.buf = iov[seg].iov_base;
-		desc.count = iov[seg].iov_len;
-		if (desc.count == 0)
-			continue;
-		desc.error = 0;
-		do_shmem_file_read(filp, ppos, &desc, file_read_actor);
-		retval += desc.written;
-		if (desc.error) {
-			retval = retval ?: desc.error;
-			break;
-		}
-		if (desc.count > 0)
-			break;
-	}
-	return retval;
+	return desc.written ? desc.written : desc.error;
 }
 
 static ssize_t shmem_file_splice_read(struct file *in, loff_t *ppos,
@@ -2075,6 +2061,7 @@ static int shmem_parse_options(char *options, struct shmem_sb_info *sbinfo,
 			       bool remount)
 {
 	char *this_char, *value, *rest;
+	struct mempolicy *mpol = NULL;
 
 	while (options != NULL) {
 		this_char = options;
@@ -2101,7 +2088,7 @@ static int shmem_parse_options(char *options, struct shmem_sb_info *sbinfo,
 			printk(KERN_ERR
 			    "tmpfs: No value for mount option '%s'\n",
 			    this_char);
-			return 1;
+			goto error;
 		}
 
 		if (!strcmp(this_char,"size")) {
@@ -2144,19 +2131,25 @@ static int shmem_parse_options(char *options, struct shmem_sb_info *sbinfo,
 			if (*rest)
 				goto bad_val;
 		} else if (!strcmp(this_char,"mpol")) {
-			if (mpol_parse_str(value, &sbinfo->mpol, 1))
+			mpol_put(mpol);
+			if (mpol_parse_str(value, &mpol, 1)) {
+				mpol = NULL;
 				goto bad_val;
+			}
 		} else {
 			printk(KERN_ERR "tmpfs: Bad mount option %s\n",
 			       this_char);
-			return 1;
+			goto error;
 		}
 	}
+	sbinfo->mpol = mpol;
 	return 0;
 
 bad_val:
 	printk(KERN_ERR "tmpfs: Bad value '%s' for mount option '%s'\n",
 	       value, this_char);
+error:
+	mpol_put(mpol);
 	return 1;
 
 }
@@ -2168,6 +2161,7 @@ static int shmem_remount_fs(struct super_block *sb, int *flags, char *data)
 	unsigned long inodes;
 	int error = -EINVAL;
 
+	config.mpol = NULL;
 	if (shmem_parse_options(data, &config, true))
 		return error;
 
@@ -2192,8 +2186,13 @@ static int shmem_remount_fs(struct super_block *sb, int *flags, char *data)
 	sbinfo->max_inodes  = config.max_inodes;
 	sbinfo->free_inodes = config.max_inodes - inodes;
 
-	mpol_put(sbinfo->mpol);
-	sbinfo->mpol        = config.mpol;	/* transfers initial ref */
+	/*
+	 * Preserve previous mempolicy unless mpol remount option was specified.
+	 */
+	if (config.mpol) {
+		mpol_put(sbinfo->mpol);
+		sbinfo->mpol = config.mpol;	/* transfers initial ref */
+	}
 out:
 	spin_unlock(&sbinfo->stat_lock);
 	return error;
@@ -2224,6 +2223,7 @@ static void shmem_put_super(struct super_block *sb)
 	struct shmem_sb_info *sbinfo = SHMEM_SB(sb);
 
 	percpu_counter_destroy(&sbinfo->used_blocks);
+	mpol_put(sbinfo->mpol);
 	kfree(sbinfo);
 	sb->s_fs_info = NULL;
 }
@@ -2357,8 +2357,8 @@ static const struct file_operations shmem_file_operations = {
 	.llseek		= generic_file_llseek,
 	.read		= do_sync_read,
 	.write		= do_sync_write,
-	.aio_read	= shmem_file_aio_read,
-	.aio_write	= generic_file_aio_write,
+	.read_iter	= shmem_file_read_iter,
+	.write_iter	= generic_file_write_iter,
 	.fsync		= noop_fsync,
 	.splice_read	= shmem_file_splice_read,
 	.splice_write	= generic_file_splice_write,

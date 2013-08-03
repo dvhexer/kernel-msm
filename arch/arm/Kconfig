@@ -20,8 +20,10 @@ config ARM
 	select HAVE_DYNAMIC_FTRACE if (!XIP_KERNEL)
 	select HAVE_FUNCTION_GRAPH_TRACER if (!THUMB2_KERNEL)
 	select ARCH_BINFMT_ELF_RANDOMIZE_PIE
+	select HAVE_EFFICIENT_UNALIGNED_ACCESS
 	select HAVE_GENERIC_DMA_COHERENT
 	select HAVE_KERNEL_GZIP
+	select HAVE_KERNEL_LZ4
 	select HAVE_KERNEL_LZO
 	select HAVE_KERNEL_LZMA
 	select HAVE_KERNEL_XZ
@@ -34,8 +36,11 @@ config ARM
 	select HAVE_GENERIC_HARDIRQS
 	select GENERIC_IRQ_SHOW
 	select CPU_PM if (SUSPEND || CPU_IDLE)
+	select DCACHE_WORD_ACCESS if (CPU_V6 || CPU_V6K || CPU_V7) && !CPU_BIG_ENDIAN && MMU
 	select GENERIC_PCI_IOMAP
 	select HAVE_BPF_JIT if NET
+	select GENERIC_STRNCPY_FROM_USER
+	select GENERIC_STRNLEN_USER
 	help
 	  The ARM series is a line of low-power-consumption RISC chip designs
 	  licensed by ARM Ltd and targeted at embedded applications and
@@ -160,10 +165,9 @@ config ARM_TICKET_LOCKS
 
 config RWSEM_GENERIC_SPINLOCK
 	bool
-	default y
 
 config RWSEM_XCHGADD_ALGORITHM
-	bool
+	def_bool y
 
 config ARCH_HAS_ILOG2_U32
 	bool
@@ -1594,6 +1598,22 @@ config SCHED_SMT
 	  Improves the CPU scheduler's decision making when dealing with
 	  MultiThreading at a cost of slightly increased overhead in some
 	  places. If unsure say N here.
+
+config ARCH_SCALE_INVARIANT_CPU_CAPACITY
+       bool "Scale-Invariant CPU Compute Capacity Recording (EXPERIMENTAL)"
+       depends on EXPERIMENTAL
+       depends on CPU_FREQ
+       help
+         Provides a new measure of maximum and instantaneous CPU compute
+         capacity, derived from a table of relative compute performance
+         for each core type present in the system. The table is an
+         estimate and specific core performance may be different for
+         any particular workload. The measure includes the relative
+         performance and a linear scale of current to maximum frequency
+         such that at maximum frequency (as expressed in the DTB) the
+         reported compute capacity will be equal to the estimated
+         performance from the table. Values range between 0 and 1023 where
+         1023 is the highest capacity available in the system.
 
 config HAVE_ARM_SCU
 	bool
