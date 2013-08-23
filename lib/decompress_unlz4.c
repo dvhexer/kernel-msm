@@ -1,41 +1,21 @@
 /*
- * LZ4 decompressor for the Linux kernel.
+ * Wrapper for decompressing LZ4-compressed kernel, initramfs, and initrd
  *
- * Linux kernel adaptation:
  * Copyright (C) 2013, LG Electronics, Kyungsik Lee <kyungsik.lee@lge.com>
  *
- * Based on LZ4 implementation by Yann Collet.
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2,
+ * or (at your option) any later version.
  *
- * LZ4 - Fast LZ compression algorithm
- * Copyright (C) 2011-2012, Yann Collet.
- * BSD 2-Clause License (http://www.opensource.org/licenses/bsd-license.php)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *
- * * Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above
- *   copyright notice, this list of conditions and the following disclaimer
- *   in the documentation and/or other materials provided with the
- *   distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- *  You can contact the author at :
- *  - LZ4 homepage : http://fastcompression.blogspot.com/p/lz4.html
- *  - LZ4 source repository : http://code.google.com/p/lz4/
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
 #ifdef STATIC
@@ -44,12 +24,11 @@
 #else
 #include <linux/decompress/unlz4.h>
 #endif
-
 #include <linux/types.h>
 #include <linux/lz4.h>
 #include <linux/decompress/mm.h>
-
 #include <linux/compiler.h>
+
 #include <asm/unaligned.h>
 
 
@@ -63,11 +42,14 @@ STATIC inline int INIT unlz4(u8 *input, int in_len,
 				void (*error) (char *x))
 {
 	int ret = -1;
-	u32 chunksize = 0;
+	size_t chunksize = 0;
 	u8 *inp;
 	u8 *inp_start;
 	u8 *outp;
 	int size = in_len;
+#ifdef PREBOOT
+	size_t out_len = get_unaligned_le32(input + in_len);
+#endif
 	size_t dest_len;
 
 
@@ -145,8 +127,18 @@ STATIC inline int INIT unlz4(u8 *input, int in_len,
 			}
 			fill(inp, chunksize);
 		}
+#ifdef PREBOOT
+		if (out_len >= LZ4_CHUNK_SIZE) {
+			dest_len = LZ4_CHUNK_SIZE;
+			out_len -= dest_len;
+		} else
+			dest_len = out_len;
+		ret = lz4_decompress(inp, &chunksize, outp, dest_len);
+#else
 		dest_len = LZ4_CHUNK_SIZE;
-		ret = lz4_decompress(inp, chunksize, outp, &dest_len);
+		ret = lz4_decompress_unknownoutputsize(inp, chunksize, outp,
+				&dest_len);
+#endif
 		if (ret < 0) {
 			error("Decoding failed");
 			goto exit_2;
@@ -159,7 +151,6 @@ STATIC inline int INIT unlz4(u8 *input, int in_len,
 		if (posp)
 			*posp += chunksize;
 
-		inp += chunksize;
 		size -= chunksize;
 
 		if (size == 0)
@@ -169,6 +160,7 @@ STATIC inline int INIT unlz4(u8 *input, int in_len,
 			goto exit_2;
 		}
 
+		inp += chunksize;
 		if (fill)
 			inp = inp_start;
 	}
@@ -180,7 +172,6 @@ exit_2:
 exit_1:
 	if (!output)
 		large_free(outp);
-
 exit_0:
 	return ret;
 }
